@@ -47,7 +47,13 @@ const g = globalThis as unknown as { __dotsDb?: DatabaseSync };
 
 export function db(): DatabaseSync {
   if (!g.__dotsDb) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    // Chats, saved-password ciphertext and each dot's logged-in browser profile live here: owner-only.
+    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(DATA_DIR, 0o700);
+    } catch {
+      // not ours to change (for example a mounted volume); carry on
+    }
     const conn = new DatabaseSync(path.join(DATA_DIR, "dots.db"));
     conn.exec("PRAGMA journal_mode = WAL;");
     conn.exec(SCHEMA);

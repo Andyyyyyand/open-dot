@@ -21,20 +21,28 @@ function masterKey(): Buffer {
       hex = execFileSync("security", ["find-generic-password", "-s", SERVICE, "-a", "master", "-w"], { stdio: ["ignore", "pipe", "ignore"] })
         .toString().trim();
     } catch {
-      hex = crypto.randomBytes(32).toString("hex");
+      const fresh = crypto.randomBytes(32).toString("hex");
       try {
-        execFileSync("security", ["add-generic-password", "-s", SERVICE, "-a", "master", "-w", hex, "-U"], { stdio: "ignore" });
+        execFileSync("security", ["add-generic-password", "-s", SERVICE, "-a", "master", "-w", fresh, "-U"], { stdio: "ignore" });
+        hex = fresh;
       } catch {
-        hex = null;
+        // Never fall back to a key file next to the database by surprise: that would quietly turn "protected by
+        // the Keychain" into "protected by nothing". Fail loudly unless the user explicitly opted in.
+        if (process.env.DOTS_ALLOW_FILE_KEY !== "1") {
+          throw new Error("Open Dot could not use the macOS Keychain for its encryption key, so saved passwords are disabled. Unlock the login keychain and restart the app (or set DOTS_ALLOW_FILE_KEY=1 to accept a key file instead).");
+        }
       }
     }
   }
   if (!hex) {
     const file = path.join(DATA_DIR, "vault.key");
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
     if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(32).toString("hex"), { mode: 0o600 });
+    else fs.chmodSync(file, 0o600);
     hex = fs.readFileSync(file, "utf8").trim();
   }
+  // A truncated or corrupted value would silently give a short, weak key.
+  if (!/^[0-9a-f]{64}$/i.test(hex)) throw new Error("The vault key is malformed (expected 32 bytes of hex). Saved passwords are disabled until it is fixed.");
   g.__dotsVaultKey = Buffer.from(hex, "hex");
   return g.__dotsVaultKey;
 }

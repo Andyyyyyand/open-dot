@@ -140,7 +140,7 @@ export async function resolveCard(messageId: string, choice: "approve" | "deny" 
   const approved = choice === "approve" || choice === "always";
   const status: CardData["status"] = choice === "answer" ? "answered" : approved ? "approved" : "denied";
   repo.updateMessage(messageId, { card: { ...card, status, answer } });
-  if (choice === "always" && card.ruleAction) repo.addRule({ dotId: dot.id, action: card.ruleAction, decision: "allow" });
+  if (choice === "always" && card.ruleAction && !(card.tool && findTool(card.tool)?.locked)) repo.addRule({ dotId: dot.id, action: card.ruleAction, decision: "allow" });
 
   const convId = msg.conversationId ?? repo.latestConversationId(dot.id);
   const pending = parsePending(repo.threadOf(convId).pending);
@@ -455,7 +455,10 @@ async function processCalls(dot: Dot, pending: Pending, signal: AbortSignal): Pr
     if (def.describe) {
       const action = def.describe(args, ctx);
       repo.setActivity(dot.id, "Checking your rules");
-      const verdict = await review(dot.id, action, (await def.defaultDecision?.(ctx, args)) ?? "allow");
+      const reviewed = await review(dot.id, action, (await def.defaultDecision?.(ctx, args)) ?? "allow");
+      // Locked tools (saved passwords, the user's own computer) can be forbidden by a rule but never auto-allowed:
+      // a misjudging reviewer model or an "always allow" click must not remove the human from the loop.
+      const verdict = def.locked && reviewed.decision === "allow" ? { ...reviewed, decision: "ask" as const } : reviewed;
       if (verdict.decision === "never") {
         activity(dot.id, "Blocked by your rule", verdict.rule?.action);
         pending.outputs.push({ type: "function_call_output", call_id: call.call_id, output: `Not allowed: the user's rule says never ${verdict.rule?.action ?? "do this"}. Don't try to work around it.` });
@@ -463,7 +466,7 @@ async function processCalls(dot: Dot, pending: Pending, signal: AbortSignal): Pr
       }
       if (verdict.decision === "ask") {
         return pauseFor(dot, pending, {
-          kind: "approval", status: "pending", title: capitalize(action), tool: def.name, ruleAction: verdict.rule?.action ?? action,
+          kind: "approval", status: "pending", title: capitalize(action), tool: def.name, ruleAction: def.locked ? undefined : verdict.rule?.action ?? action,
           detail: [def.detail?.(args), verdict.rule ? `Your rule: ask first when it wants to ${verdict.rule.action}.` : null].filter(Boolean).join("\n\n") || undefined,
         });
       }

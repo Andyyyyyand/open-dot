@@ -23,6 +23,8 @@ export type ToolDef = {
   label: string;
   /** Natural-language description of the action, matched against the user's rules. Omit for always-safe tools. */
   describe?: (args: Record<string, unknown>, ctx: ToolCtx) => string;
+  /** Security-sensitive: a user rule can make this "never", but can never make it run without a fresh approval. */
+  locked?: boolean;
   /** What happens when no user rule matches. */
   defaultDecision?: (ctx: ToolCtx, args: Record<string, unknown>) => RuleDecision | Promise<RuleDecision>;
   /** Runs before rules/approval; a returned string short-circuits as the tool's output (e.g. "app not connected"). */
@@ -132,10 +134,12 @@ export const TOOLS: ToolDef[] = [
     parameters: obj({ site: str("Site/domain of the login, e.g. github.com") }),
     describe: (a) => `sign in to ${s(a.site)} with the user's saved password`,
     defaultDecision: () => "ask",
+    locked: true,
     execute: async (a, ctx) => {
       const cred = credentialFor(s(a.site));
       if (!cred) return `No saved password for ${s(a.site)}. Ask the user to add one under Passwords (never ask them to paste it in chat), or to take over your computer and log in themselves.`;
-      return computer.fillLogin(ctx.dot.id, cred.username, cred.password);
+      // The page is checked against the site stored with the password (cred.site), never against a.site.
+      return computer.fillLogin(ctx.dot.id, cred.site, cred.username, cred.password);
     },
   },
   {
@@ -145,6 +149,7 @@ export const TOOLS: ToolDef[] = [
     parameters: obj({ command: str("The bash command to run on the user's computer") }),
     describe: (a) => `run \`${s(a.command)}\` on the user's personal computer`,
     defaultDecision: () => "ask",
+    locked: true,
     execute: async (a, ctx) => {
       if (!repo.getDot(ctx.dot.id)?.localAccess)
         return "You no longer have access to the user's computer. They can allow access again from this dot's settings on that computer.";

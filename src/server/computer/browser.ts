@@ -170,6 +170,11 @@ export async function openUrl(dotId: string, url: string): Promise<string> {
   return `Opened ${p.url()} — "${await p.title()}"`;
 }
 
+/** The address the dot's own browser is showing right now. */
+export async function currentUrl(dotId: string): Promise<string> {
+  return (await page(dotId)).url();
+}
+
 export async function readPage(dotId: string): Promise<string> {
   const p = await page(dotId);
   const text = await p.evaluate(() => document.body?.innerText ?? "");

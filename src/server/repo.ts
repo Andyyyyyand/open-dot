@@ -563,8 +563,10 @@ export function insertPassword(site: string, username: string, sealed: string): 
 export function sealedPasswordFor(site: string): { username: string; sealed: string; site: string } | null {
   const rows = db().prepare("SELECT site, username, secret FROM passwords").all() as Row[];
   const host = hostOf(site);
+  // Exact host, or a subdomain of a saved site (login.example.com for example.com). Never the reverse: a short
+  // query such as "com" must not select every saved .com credential.
   const match = rows.find((r) => hostOf(r.site as string) === host) ??
-    rows.find((r) => host.endsWith("." + hostOf(r.site as string)) || hostOf(r.site as string).endsWith("." + host));
+    rows.find((r) => host.endsWith("." + hostOf(r.site as string)));
   return match ? { site: match.site as string, username: match.username as string, sealed: match.secret as string } : null;
 }
 

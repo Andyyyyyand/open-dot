@@ -6,6 +6,7 @@ import * as cloud from "./cloud";
 import * as browser from "./browser";
 import { BOX_IMAGE, dockerAvailable, resetDotComputer, resolveWorkspacePath, runOnDotComputer, workspaceDir } from "./shell";
 import type { ComputerAction } from "./browser";
+import { loginOriginProblem } from "../login-guard";
 
 // One interface for "the dot's computer", whichever kind it is:
 //   cloud  — an E2B desktop sandbox per dot (Linux + Chrome + live stream), works while the laptop is closed
@@ -88,7 +89,21 @@ export async function listFiles(dotId: string): Promise<FileEntry[]> {
 
 export const openUrl = (dotId: string, url: string) => (isCloud(dotId) ? cloud.openUrl(dotId, url) : browser.openUrl(dotId, url));
 export const readPage = (dotId: string) => (isCloud(dotId) ? cloud.readPage(dotId) : browser.readPage(dotId));
-export const fillLogin = (dotId: string, u: string, p: string) => (isCloud(dotId) ? cloud.fillLogin(dotId, u, p) : browser.fillLogin(dotId, u, p));
+/** The address of the page the dot's browser is showing right now (first line of readPage's "URL: ..."). */
+async function currentPageUrl(dotId: string): Promise<string> {
+  if (!isCloud(dotId)) return browser.currentUrl(dotId);
+  return /^URL: (.*)$/.exec((await cloud.readPage(dotId)).split("\n")[0])?.[1]?.trim() ?? "";
+}
+
+/**
+ * Types a saved credential into the open page, but only if that page really belongs to the saved site.
+ * `storedSite` must be the site as stored with the password, not text supplied by the model.
+ */
+export async function fillLogin(dotId: string, storedSite: string, u: string, p: string): Promise<string> {
+  const problem = loginOriginProblem(await currentPageUrl(dotId), storedSite);
+  if (problem) return problem;
+  return isCloud(dotId) ? cloud.fillLogin(dotId, u, p) : browser.fillLogin(dotId, u, p);
+}
 export const clickText = (dotId: string, text: string) => (isCloud(dotId) ? cloud.clickText(dotId, text) : browser.clickText(dotId, text));
 export const typeText = (dotId: string, field: string, value: string, submit: boolean) =>
   isCloud(dotId) ? cloud.typeText(dotId, field, value, submit) : browser.typeText(dotId, field, value, submit);
